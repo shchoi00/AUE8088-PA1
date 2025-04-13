@@ -11,16 +11,18 @@ class MyAccuracy(Metric):
         self.add_state('total', default=torch.tensor(0), dist_reduce_fx='sum')
         self.add_state('correct', default=torch.tensor(0), dist_reduce_fx='sum')
 
-    def update(self, preds, target):
+    def update(self, preds: torch.Tensor, target:torch.Tensor):
         # [TODO] The preds (B x C tensor), so take argmax to get index with highest confidence
-
-
+        preds = preds.max(dim=1)[1]
+        
         # [TODO] check if preds and target have equal shape
-
+        if preds.shape != target.shape:
+            raise Exception("Tensors are different sizes.")
 
         # [TODO] Cound the number of correct prediction
-
-
+        correct = preds.eq(target)
+        correct = torch.sum(correct)
+        
         # Accumulate to self.correct
         self.correct += correct
 
