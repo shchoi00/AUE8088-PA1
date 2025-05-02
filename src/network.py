@@ -20,122 +20,131 @@ from src.util import show_setting
 # [TODO: Optional] Rewrite this class if you want
 LeakyReLU = nn.LeakyReLU(negative_slope=0.01, inplace=True)
 
-class MyNetwork(nn.Module):
+class Bottleneck(nn.Module):
+    expansion = 4
 
-    def __init__(self, num_classes: int = cfg.NUM_CLASSES):
-        super(MyNetwork, self).__init__()
+    def __init__(self, in_channels, out_channels, stride=1, downsample=None, dropout_rate=0.0):
+        super(Bottleneck, self).__init__()
+        self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=1, bias=False)
+        self.bn1 = nn.BatchNorm2d(out_channels)
+        self.relu1 = LeakyReLU
 
-        self.conv1a = nn.Conv2d(3, 64, kernel_size=3, stride=4, padding=1)
-        self.bn1a = nn.BatchNorm2d(64)
-        self.lkrelu1a = LeakyReLU
+        self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size=3, stride=stride, padding=1, bias=False)
+        self.bn2 = nn.BatchNorm2d(out_channels)
+        self.relu2 = LeakyReLU
 
-        self.conv1b = nn.Conv2d(64, 96, kernel_size=3, stride=1, padding=1)
-        self.bn1b = nn.BatchNorm2d(96)
-        self.lkrelu1b = LeakyReLU 
+        self.conv3 = nn.Conv2d(out_channels, out_channels * self.expansion, kernel_size=1, bias=False)
+        self.bn3 = nn.BatchNorm2d(out_channels * self.expansion)
 
-        self.pool1 = nn.MaxPool2d(kernel_size=3, stride=2)
-        self.dropout1 = nn.Dropout2d(p=0.25) 
+        self.downsample = downsample
+        self.stride = stride
 
-        self.conv2 = nn.Conv2d(96, 256, kernel_size=3, stride=1, padding=1)
-        self.bn2 = nn.BatchNorm2d(256)
-        self.lkrelu2 = LeakyReLU 
+        if dropout_rate > 0:
+            self.dropout = nn.Dropout2d(p=dropout_rate)
+        else:
+            self.dropout = nn.Identity()
 
-        self.pool2 = nn.MaxPool2d(kernel_size=3, stride=2)
-        self.dropout2 = nn.Dropout2d(p=0.25) 
+    def forward(self, x):
+        identity = x
 
-        self.conv3 = nn.Conv2d(256, 384, kernel_size=3, stride=1, padding=1)
-        self.bn3 = nn.BatchNorm2d(384)
-        self.lkrelu3 = LeakyReLU 
+        out = self.conv1(x)
+        out = self.bn1(out)
+        out = self.relu1(out)
 
-        self.conv4 = nn.Conv2d(384, 384, kernel_size=3, stride=1, padding=1)
-        self.bn4 = nn.BatchNorm2d(384)
-        self.lkrelu4 = LeakyReLU 
-
-        self.conv5 = nn.Conv2d(384, 256, kernel_size=3, stride=1, padding=1)
-        self.bn5 = nn.BatchNorm2d(256)
-        self.lkrelu5 = LeakyReLU
-
-        self.pool3 = nn.MaxPool2d(kernel_size=3, stride=2)
-        self.dropout3 = nn.Dropout2d(p=0.25) 
-
-        self.skip1_proj = nn.Conv2d(3, 96, kernel_size=1, stride=4)
-
-        self.skip2_proj = nn.Conv2d(96, 256, kernel_size=1, stride=1)
-
-        self.skip3_proj = nn.Conv2d(256, 384, kernel_size=1, stride=1)
-
-
-        self.skip4_proj = nn.Identity()
-
-        self.skip5_proj = nn.Conv2d(384, 256, kernel_size=1, stride=1)
-
-        self.avgpool = nn.AdaptiveAvgPool2d((6, 6)) 
-
-        self.classifier = nn.Sequential(
-            nn.Dropout(p=0.5),
-            nn.Linear(256 * 6 * 6, 4096),
-            LeakyReLU,
-            nn.Dropout(p=0.5), 
-            nn.Linear(4096, 4096),
-            LeakyReLU,
-            nn.Linear(4096, num_classes), 
-        )
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-
-        identity = self.skip1_proj(x) 
-        out = self.conv1a(x)
-        out = self.bn1a(out)
-        out = self.lkrelu1a(out)
-
-        out = self.conv1b(out)
-        out = self.bn1b(out)
-        out += identity 
-        out = self.lkrelu1b(out)
-
-        out = self.pool1(out)
-        out = self.dropout1(out)
-        x = out 
-
-        identity = self.skip2_proj(x)
-        out = self.conv2(x)
+        out = self.conv2(out)
         out = self.bn2(out)
-        out += identity
-        out = self.lkrelu2(out)
+        out = self.relu2(out)
 
-        out = self.pool2(out)
-        out = self.dropout2(out)
-        x = out 
-
-        identity = self.skip3_proj(x)
-        out = self.conv3(x)
+        out = self.conv3(out)
         out = self.bn3(out)
-        out += identity
-        out = self.lkrelu3(out)
-        x = out 
 
-        identity = self.skip4_proj(x)
-        out = self.conv4(x)
-        out = self.bn4(out)
-        out += identity
-        out = self.lkrelu4(out)
-        x = out 
+        if self.dropout_rate > 0:
+            out = self.dropout(out)
 
-        identity = self.skip5_proj(x)
-        out = self.conv5(x)
-        out = self.bn5(out)
-        out += identity
-        out = self.lkrelu5(out)
+        if self.downsample is not None:
+            identity = self.downsample(x)
 
-        out = self.pool3(out)
-        out = self.dropout3(out)
-        x = out 
+        out += identity
+        self.relu_final = LeakyReLU
+        out = self.relu_final(out)
+
+        return out
+
+class MyNetwork_ResNetLarge(nn.Module):
+    def __init__(self, block, layers, num_classes=1000, dropout_rate=0.0):
+        super(MyNetwork_ResNetLarge, self).__init__()
+        self.in_channels = 64
+        self.dropout_rate = dropout_rate
+        self.block = block
+
+        self.conv1 = nn.Conv2d(3, self.in_channels, kernel_size=7, stride=2, padding=3, bias=False)
+        self.bn1 = nn.BatchNorm2d(self.in_channels)
+        self.relu = LeakyReLU
+        self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
+
+        self.layer1 = self._make_layer(block, 64, layers[0], stride=1)
+        self.layer2 = self._make_layer(block, 128, layers[1], stride=2)
+        self.layer3 = self._make_layer(block, 256, layers[2], stride=2)
+        self.layer4 = self._make_layer(block, 512, layers[3], stride=2)
+
+        self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
+        self.fc = nn.Linear(512 * block.expansion, num_classes)
+
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+            elif isinstance(m, nn.BatchNorm2d):
+                nn.init.constant_(m.weight, 1)
+                nn.init.constant_(m.bias, 0)
+            elif isinstance(m, nn.Linear):
+                nn.init.normal_(m.weight, 0, 0.01)
+                nn.init.constant_(m.bias, 0)
+
+    def _make_layer(self, block, out_channels, num_blocks, stride):
+        downsample = None
+        if stride != 1 or self.in_channels != out_channels * block.expansion:
+            downsample = nn.Sequential(
+                nn.Conv2d(self.in_channels, out_channels * block.expansion, kernel_size=1, stride=stride, bias=False),
+                nn.BatchNorm2d(out_channels * block.expansion),
+            )
+
+        layers = []
+        layers.append(block(self.in_channels, out_channels, stride, downsample, self.dropout_rate))
+        self.in_channels = out_channels * block.expansion
+
+        for _ in range(1, num_blocks):
+            layers.append(block(self.in_channels, out_channels, stride=1, dropout_rate=self.dropout_rate))
+
+        return nn.Sequential(*layers)
+
+    def forward(self, x):
+        x = self.conv1(x)
+        x = self.bn1(x)
+        x = self.relu(x)
+        x = self.maxpool(x)
+
+        x = self.layer1(x)
+        x = self.layer2(x)
+        x = self.layer3(x)
+        x = self.layer4(x)
 
         x = self.avgpool(x)
-        x = torch.flatten(x, 1) 
-        x = self.classifier(x) 
+        x = torch.flatten(x, 1)
+        x = self.fc(x)
 
         return x
+
+# To create a ResNet-50 inspired model:
+# layers = [3, 4, 6, 3]
+# model = MyNetwork_ResNetLarge(Bottleneck, [3, 4, 6, 3], num_classes=200, dropout_rate=0.1)
+
+# To create a ResNet-101 inspired model:
+# layers = [3, 4, 23, 3]
+# model = MyNetwork_ResNetLarge(Bottleneck, [3, 4, 23, 3], num_classes=200, dropout_rate=0.1)
+
+# To create a ResNet-152 inspired model:
+# layers = [3, 8, 36, 3]
+# model = MyNetwork_ResNetLarge(Bottleneck, [3, 8, 36, 3], num_classes=200, dropout_rate=0.1)
 
 class SimpleClassifier(LightningModule):
     def __init__(self,
