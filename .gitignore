@@ -3,6 +3,7 @@ datasets/*
 wandb/*
 lightning_logs/*
 *.zip
+*.deb
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
