@@ -23,7 +23,7 @@ LeakyReLU = nn.LeakyReLU(negative_slope=0.01, inplace=True)
 class Bottleneck(nn.Module):
     expansion = 4
 
-    def __init__(self, in_channels, out_channels, stride=1, downsample=None, dropout_rate=0.0):
+    def __init__(self, in_channels, out_channels, stride=1, downsample=None, dropout_rate=0.25):
         super(Bottleneck, self).__init__()
         self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=1, bias=False)
         self.bn1 = nn.BatchNorm2d(out_channels)
@@ -38,7 +38,7 @@ class Bottleneck(nn.Module):
 
         self.downsample = downsample
         self.stride = stride
-
+        self.dropout_rate = dropout_rate
         if dropout_rate > 0:
             self.dropout = nn.Dropout2d(p=dropout_rate)
         else:
@@ -70,9 +70,9 @@ class Bottleneck(nn.Module):
 
         return out
 
-class MyNetwork_ResNetLarge(nn.Module):
-    def __init__(self, block, layers, num_classes=1000, dropout_rate=0.0):
-        super(MyNetwork_ResNetLarge, self).__init__()
+class MyNetwork(nn.Module):
+    def __init__(self, block=Bottleneck, layers=[3, 8, 36, 3], num_classes=cfg.NUM_CLASSES, dropout_rate=0.25):
+        super(MyNetwork, self).__init__()
         self.in_channels = 64
         self.dropout_rate = dropout_rate
         self.block = block
@@ -133,18 +133,6 @@ class MyNetwork_ResNetLarge(nn.Module):
         x = self.fc(x)
 
         return x
-
-# To create a ResNet-50 inspired model:
-# layers = [3, 4, 6, 3]
-# model = MyNetwork_ResNetLarge(Bottleneck, [3, 4, 6, 3], num_classes=200, dropout_rate=0.1)
-
-# To create a ResNet-101 inspired model:
-# layers = [3, 4, 23, 3]
-# model = MyNetwork_ResNetLarge(Bottleneck, [3, 4, 23, 3], num_classes=200, dropout_rate=0.1)
-
-# To create a ResNet-152 inspired model:
-# layers = [3, 8, 36, 3]
-# model = MyNetwork_ResNetLarge(Bottleneck, [3, 8, 36, 3], num_classes=200, dropout_rate=0.1)
 
 class SimpleClassifier(LightningModule):
     def __init__(self,
