@@ -22,7 +22,7 @@ class MyF1Score(Metric):
         target = target.view(-1)
         if preds.shape != target.shape:
             raise Exception(f"Tensors have different shapes. preds: {preds.shape}, target: {target.shape}")
-        # Update confusion matrix
+        
         for t, p in zip(target, preds):
             self.conf_mat[t.long(), p.long()] += 1
 

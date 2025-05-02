@@ -12,27 +12,130 @@ from torchvision.models.alexnet import AlexNet
 import torch
 
 # Custom packages
-from src.metric import MyAccuracy
+from src.metric import MyAccuracy, MyF1Score
 import src.config as cfg
 from src.util import show_setting
 
 
 # [TODO: Optional] Rewrite this class if you want
-class MyNetwork(AlexNet):
-    def __init__(self):
-        super().__init__()
+LeakyReLU = nn.LeakyReLU(negative_slope=0.01, inplace=True)
 
-        # [TODO] Modify feature extractor part in AlexNet
+class MyNetwork(nn.Module):
 
+    def __init__(self, num_classes: int = cfg.NUM_CLASSES):
+        super(MyNetwork, self).__init__()
+
+        self.conv1a = nn.Conv2d(3, 64, kernel_size=3, stride=4, padding=1)
+        self.bn1a = nn.BatchNorm2d(64)
+        self.lkrelu1a = LeakyReLU
+
+        self.conv1b = nn.Conv2d(64, 96, kernel_size=3, stride=1, padding=1)
+        self.bn1b = nn.BatchNorm2d(96)
+        self.lkrelu1b = LeakyReLU 
+
+        self.pool1 = nn.MaxPool2d(kernel_size=3, stride=2)
+        self.dropout1 = nn.Dropout2d(p=0.25) 
+
+        self.conv2 = nn.Conv2d(96, 256, kernel_size=3, stride=1, padding=1)
+        self.bn2 = nn.BatchNorm2d(256)
+        self.lkrelu2 = LeakyReLU 
+
+        self.pool2 = nn.MaxPool2d(kernel_size=3, stride=2)
+        self.dropout2 = nn.Dropout2d(p=0.25) 
+
+        self.conv3 = nn.Conv2d(256, 384, kernel_size=3, stride=1, padding=1)
+        self.bn3 = nn.BatchNorm2d(384)
+        self.lkrelu3 = LeakyReLU 
+
+        self.conv4 = nn.Conv2d(384, 384, kernel_size=3, stride=1, padding=1)
+        self.bn4 = nn.BatchNorm2d(384)
+        self.lkrelu4 = LeakyReLU 
+
+        self.conv5 = nn.Conv2d(384, 256, kernel_size=3, stride=1, padding=1)
+        self.bn5 = nn.BatchNorm2d(256)
+        self.lkrelu5 = LeakyReLU
+
+        self.pool3 = nn.MaxPool2d(kernel_size=3, stride=2)
+        self.dropout3 = nn.Dropout2d(p=0.25) 
+
+        self.skip1_proj = nn.Conv2d(3, 96, kernel_size=1, stride=4)
+
+        self.skip2_proj = nn.Conv2d(96, 256, kernel_size=1, stride=1)
+
+        self.skip3_proj = nn.Conv2d(256, 384, kernel_size=1, stride=1)
+
+
+        self.skip4_proj = nn.Identity()
+
+        self.skip5_proj = nn.Conv2d(384, 256, kernel_size=1, stride=1)
+
+        self.avgpool = nn.AdaptiveAvgPool2d((6, 6)) 
+
+        self.classifier = nn.Sequential(
+            nn.Dropout(p=0.5),
+            nn.Linear(256 * 6 * 6, 4096),
+            LeakyReLU,
+            nn.Dropout(p=0.5), 
+            nn.Linear(4096, 4096),
+            LeakyReLU,
+            nn.Linear(4096, num_classes), 
+        )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        # [TODO: Optional] Modify this as well if you want
-        x = self.features(x)
-        x = self.avgpool(x)
-        x = torch.flatten(x, 1)
-        x = self.classifier(x)
-        return x
 
+        identity = self.skip1_proj(x) 
+        out = self.conv1a(x)
+        out = self.bn1a(out)
+        out = self.lkrelu1a(out)
+
+        out = self.conv1b(out)
+        out = self.bn1b(out)
+        out += identity 
+        out = self.lkrelu1b(out)
+
+        out = self.pool1(out)
+        out = self.dropout1(out)
+        x = out 
+
+        identity = self.skip2_proj(x)
+        out = self.conv2(x)
+        out = self.bn2(out)
+        out += identity
+        out = self.lkrelu2(out)
+
+        out = self.pool2(out)
+        out = self.dropout2(out)
+        x = out 
+
+        identity = self.skip3_proj(x)
+        out = self.conv3(x)
+        out = self.bn3(out)
+        out += identity
+        out = self.lkrelu3(out)
+        x = out 
+
+        identity = self.skip4_proj(x)
+        out = self.conv4(x)
+        out = self.bn4(out)
+        out += identity
+        out = self.lkrelu4(out)
+        x = out 
+
+        identity = self.skip5_proj(x)
+        out = self.conv5(x)
+        out = self.bn5(out)
+        out += identity
+        out = self.lkrelu5(out)
+
+        out = self.pool3(out)
+        out = self.dropout3(out)
+        x = out 
+
+        x = self.avgpool(x)
+        x = torch.flatten(x, 1) 
+        x = self.classifier(x) 
+
+        return x
 
 class SimpleClassifier(LightningModule):
     def __init__(self,
@@ -44,7 +147,7 @@ class SimpleClassifier(LightningModule):
         super().__init__()
 
         # Network
-        if model_name == 'MyNetwork':
+        if model_name == 'MyNetwork':  
             self.model = MyNetwork()
         else:
             models_list = models.list_models()
@@ -56,6 +159,7 @@ class SimpleClassifier(LightningModule):
 
         # Metric
         self.accuracy = MyAccuracy()
+        self.F1_score = MyF1Score(num_classes, 'macro')
 
         # Hyperparameters
         self.save_hyperparameters()
@@ -79,15 +183,17 @@ class SimpleClassifier(LightningModule):
     def training_step(self, batch, batch_idx):
         loss, scores, y = self._common_step(batch)
         accuracy = self.accuracy(scores, y)
-        self.log_dict({'loss/train': loss, 'accuracy/train': accuracy},
-                      on_step=False, on_epoch=True, prog_bar=True, logger=True)
+        f1_score = self.F1_score(scores, y)
+        self.log_dict({'loss/train': loss, 'accuracy/train': accuracy, 'f1_score/train': f1_score},
+                      on_step=False, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
         return loss
 
     def validation_step(self, batch, batch_idx):
         loss, scores, y = self._common_step(batch)
         accuracy = self.accuracy(scores, y)
-        self.log_dict({'loss/val': loss, 'accuracy/val': accuracy},
-                      on_step=False, on_epoch=True, prog_bar=True, logger=True)
+        f1_score = self.F1_score(scores, y)
+        self.log_dict({'loss/val': loss, 'accuracy/val': accuracy, 'f1_score/val': f1_score},
+                      on_step=False, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
         self._wandb_log_image(batch, batch_idx, scores, frequency = cfg.WANDB_IMG_LOG_FREQ)
 
     def _common_step(self, batch):
